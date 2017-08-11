@@ -17,7 +17,7 @@ def parse(fn):
         row['verified'] = int(detail['labels']['Verified'].get('value', 0))
         row['code_review'] = int(detail['labels']['Code-Review'].get('value', 0))
         if row['code_review'] == 0:
-            for item in detail['labels']['Code-Review']['all']:
+            for item in detail['labels']['Code-Review'].get('all', []):
                 if item['value']:
                     row['code_review'] = item['value']
                     break
@@ -41,5 +41,9 @@ c.execute('insert into import (created) values (?)', [dt])
 conn.commit()
 import_id = c.lastrowid
 for fn in fns:
-    parse(fn)
+    try:
+        parse(fn)
+    except Exception:
+        print 'Fail to parse %s' % fn
+        raise
 conn.close()
