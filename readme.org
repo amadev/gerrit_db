@@ -54,6 +54,12 @@ select * from import order by id desc limit 10;
 | 177 | 2017-07-09 09:02:57.454279 |
 | 176 | 2017-07-08 09:02:48.703609 |
 | 175 | 2017-07-07 09:02:42.292418 |
+*** Cleanup import
+
+#+BEGIN_SRC sqlite :db changes.db :results replace
+delete from change where import_id in (185, 186);
+delete from import where id in (185, 186);
+#+END_SRC
 
 *** Count by categories
 
