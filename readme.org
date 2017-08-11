@@ -44,6 +44,7 @@ select * from import order by id desc limit 10;
 #+END_SRC
 
 #+RESULTS:
+| 187 | 2017-08-11 18:26:57.786268 |
 | 184 | 2017-07-21 11:51:07.936105 |
 | 183 | 2017-07-18 09:02:53.296662 |
 | 182 | 2017-07-16 09:02:56.383321 |
@@ -53,7 +54,7 @@ select * from import order by id desc limit 10;
 | 178 | 2017-07-10 09:02:50.729460 |
 | 177 | 2017-07-09 09:02:57.454279 |
 | 176 | 2017-07-08 09:02:48.703609 |
-| 175 | 2017-07-07 09:02:42.292418 |
+
 *** Cleanup import
 
 #+BEGIN_SRC sqlite :db changes.db :results replace
@@ -79,27 +80,23 @@ delete from import where id in (185, 186);
   where verified > 0 and code_review = 1
   group by i.id;
 
-  select date(i.created), count(*), 'verification_failed'
+  select date(i.created), count(*), 'not_ready'
   from change c join import i on c.import_id = i.id
-  where verified < 0
-  group by i.id;
-
-  select date(i.created), count(*), 'non_mergable'
-  from change c join import i on c.import_id = i.id
-  where mergeable = 0
+  where verified < 0 or mergeable = 0
   group by i.id;
 #+END_SRC
 
 #+BEGIN_SRC python :var stat=review_stat :results file replace
-  from doan import r_date_num, plot_date
-  datasets = r_date_num(stat, multiple=True)
-  return plot_date(
-     datasets,
-     ls='-',
-     title='Nova review stat',
-     xlabel='Parsing date',
-     ylabel='Number of changes',
-     output='review_stat.png')
+from doan import r_date_num, plot_date
+datasets = r_date_num(stat, multiple=True)
+return plot_date(
+   datasets,
+   ls='-',
+   title='Nova review stat',
+   xlabel='Parsing date',
+   ylabel='Number of changes',
+   output='review_stat.png',
+   figsize=(20, 10))
 #+END_SRC
 
 #+RESULTS:
@@ -116,29 +113,27 @@ group by 1, 2;
 
 #+RESULTS:
 | verified | code_review | count |
-|       -1 |          -2 |     9 |
-|       -1 |          -1 |   115 |
-|       -1 |           0 |   220 |
-|       -1 |           1 |    53 |
+|       -1 |          -2 |    12 |
+|       -1 |          -1 |    71 |
+|       -1 |           0 |   153 |
+|       -1 |           1 |    44 |
 |       -1 |           2 |     9 |
-|        0 |          -1 |     2 |
+|        0 |          -1 |     1 |
+|        0 |           0 |     4 |
 |        0 |           2 |     4 |
-|        1 |          -2 |    14 |
-|        1 |          -1 |    73 |
-|        1 |           0 |   104 |
-|        1 |           1 |   131 |
-|        1 |           2 |    33 |
+|        1 |          -2 |    11 |
+|        1 |          -1 |    60 |
+|        1 |           0 |   103 |
+|        1 |           1 |   110 |
+|        1 |           2 |    29 |
 
 
-#+RESULTS:
-[[file:]]
-
-#+BEGIN_SRC sqlite :db ~/org/presentations/gerrit_graph/changes.db :results replace
+#+BEGIN_SRC sqlite :db changes.db :results replace
 select * from import order by id desc limit 1;
 #+END_SRC
 
 #+RESULTS:
-| 73 | 2017-03-01 09:02:41.064042 |
+| 187 | 2017-08-11 18:26:57.786268 |
 
 *** Default review queue
 
