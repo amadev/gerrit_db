@@ -1,0 +1,268 @@
+* Gerrit db
+** DB structure
+
+#+BEGIN_SRC sqlite :db changes.db
+-- drop table if exists import;
+create table import (
+  id integer primary key autoincrement,
+  created  datetime
+);
+
+-- drop table if exists change;
+create table change (
+  change_id varchar(64),
+  author varchar(128),
+  verified int,
+  code_review int,
+  project varchar(128),
+  branch varchar(128),
+  topic varchar(128),
+  subject varchar(128),
+  status varchar(16),
+  mergeable bool,
+  insertions int,
+  deletions int,
+  created datetime,
+  updated datetime,
+  import_id int
+);
+#+END_SRC
+
+** Download data
+
+#+BEGIN_SRC sh
+python download.py && python parse.py
+#+END_SRC
+
+#+RESULTS:
+
+** Queries
+*** Last imports
+
+#+BEGIN_SRC sqlite :db changes.db :results replace
+select * from import order by id desc limit 10;
+#+END_SRC
+
+#+RESULTS:
+| 184 | 2017-07-21 11:51:07.936105 |
+| 183 | 2017-07-18 09:02:53.296662 |
+| 182 | 2017-07-16 09:02:56.383321 |
+| 181 | 2017-07-15 09:02:50.565104 |
+| 180 | 2017-07-13 09:02:45.852311 |
+| 179 | 2017-07-12 09:05:07.314552 |
+| 178 | 2017-07-10 09:02:50.729460 |
+| 177 | 2017-07-09 09:02:57.454279 |
+| 176 | 2017-07-08 09:02:48.703609 |
+| 175 | 2017-07-07 09:02:42.292418 |
+
+*** Count by categories
+
+#+name: review_stat
+#+BEGIN_SRC sqlite :db changes.db :results replace
+  select date(i.created), count(*), 'total'
+  from change c join import i on c.import_id = i.id
+  group by i.id;
+
+  select date(i.created), count(*), 'ready'
+  from change c join import i on c.import_id = i.id
+  where verified > 0 and code_review = 0
+  group by i.id;
+
+  select date(i.created), count(*), 'ready_for_cores'
+  from change c join import i on c.import_id = i.id
+  where verified > 0 and code_review = 1
+  group by i.id;
+
+  select date(i.created), count(*), 'verification_failed'
+  from change c join import i on c.import_id = i.id
+  where verified < 0
+  group by i.id;
+
+  select date(i.created), count(*), 'non_mergable'
+  from change c join import i on c.import_id = i.id
+  where mergeable = 0
+  group by i.id;
+#+END_SRC
+
+#+BEGIN_SRC python :var stat=review_stat :results file replace
+  from doan import r_date_num, plot_date
+  datasets = r_date_num(stat, multiple=True)
+  return plot_date(
+     datasets,
+     ls='-',
+     title='Nova review stat',
+     xlabel='Parsing date',
+     ylabel='Number of changes',
+     output='review_stat.png')
+#+END_SRC
+
+#+RESULTS:
+[[file:review_stat.png]]
+
+*** Count by properties for the last import
+
+#+BEGIN_SRC sqlite :db changes.db :results replace
+select 'verified', 'code_review', 'count';
+select verified, code_review, count(*) from change
+where import_id = (select max(id) from import)
+group by 1, 2;
+#+END_SRC
+
+#+RESULTS:
+| verified | code_review | count |
+|       -1 |          -2 |     9 |
+|       -1 |          -1 |   115 |
+|       -1 |           0 |   220 |
+|       -1 |           1 |    53 |
+|       -1 |           2 |     9 |
+|        0 |          -1 |     2 |
+|        0 |           2 |     4 |
+|        1 |          -2 |    14 |
+|        1 |          -1 |    73 |
+|        1 |           0 |   104 |
+|        1 |           1 |   131 |
+|        1 |           2 |    33 |
+
+
+#+RESULTS:
+[[file:]]
+
+#+BEGIN_SRC sqlite :db ~/org/presentations/gerrit_graph/changes.db :results replace
+select * from import order by id desc limit 1;
+#+END_SRC
+
+#+RESULTS:
+| 73 | 2017-03-01 09:02:41.064042 |
+
+*** Default review queue
+
+#+BEGIN_SRC sqlite :db ~/org/presentations/gerrit_graph/changes.db :results replace
+select change_id, subject, topic, author from change
+where import_id = (select max(id) from import)
+and verified > 0 and code_review = 0
+and branch not like 'stable%'
+and subject not like 'WIP%'
+and subject not like 'DNM%'
+and subject not like 'POC%'
+limit 200;
+#+END_SRC
+
+#+RESULTS:
+| Ib6ef2afbdfc8c3114e5d5faf9736a12d8237deb8 | Add img_linked_clone support in libvirt                                     | bug/1697391                                       | falseuser                |
+| I7b99d7a2ef26d7da50bccea0e0652cd6dc769866 | Clear instance root_device_name in rebuild operation                        | bug/1667667                                       | falseuser                |
+| I984f2786b88efba1ac18941570bd1f028b9a62b8 | Ironic: Check a last error of power action                                  | bug/1695744                                       | shiina                   |
+| I6997e395d09fcd79140ee6b663735766b6ec9153 | Remove ports on create_port timeout during instance build                   | bug/1603909                                       | yuanyue                  |
+| I94b7d048831744f178884c23ff2f0361c3beadc7 | tests: Remove useless test                                                  | os-vif-library                                    | sfinucan                 |
+| If1b6e5f20d2ea82d94f5f0550f13189fc9bc16c4 | Convert websocketproxy to use db for token validation                       | bp/convert-consoles-to-objects                    | ptm                      |
+| I66762703709340a2f5c68dcd6802993c9a68c263 | Add periodic task to clean expired console tokens                           | bp/convert-consoles-to-objects                    | ptm                      |
+| I0f672f5667d42b67d869ff9f467dbb64eb6c9ff9 | Add access_url_base to console_auth_tokens table                            | bp/convert-consoles-to-objects                    | ptm                      |
+| I2bf3b56e6b92c40aaf95fa957de452bd7754d859 | Add console_auth_token_get() method to DB API                               | bp/convert-consoles-to-objects                    | melwitt                  |
+| If481a093c9816656cbfd936336b41d92ea5f28ba | A way to keep the UEFI nvram contents on libvirt+qemu/kvm                   | bug/1633447                                       | falseuser                |
+| If0843502fe0a85cbd5eff777d9260c90cea4812a | Update the file for IPv4-only or IPv6-only network                          | fix_bug_1355171                                   | dolpher                  |
+| Id6ff6373661943057f606b5ff8e11523018a6053 | Add spice-native type                                                       | bp/spice-native-client-support                    | vladikr                  |
+| I62dbd84ce767fec9b45aabeafcee3d7af7571d73 | tox: Add 'profiler' target                                                  | feat/add-profiler-target                          | sfinucan                 |
+| Ib6d9aaed3414014d4e02bebbe62c5b8b4b147ecc | vmware: Change the VM Create spec                                           |                                                   | caowei                   |
+| I89bd7b049ffcb8317053cd8f47a58448854bfd8a | Set min_disk in the image meta based on the root volume's size              | bug/1646740                                       | sxmatch                  |
+| I380db304a55bdc73a8467788c4773176dfb0838c | VMware: use WithRetrieval in vm_util module                                 | 325608                                            | cbrandily                |
+| Ifb29bd0dcc2133a45698310133e97e51d6d275e1 | VMware: use WithRetrieval in ds_util module                                 | 325610                                            | cbrandily                |
+| I88f6d2d54ba87f5052d5cb573753fce65d0972fb | VMware: use WithRetrieval in get_network_with_the_name                      |                                                   | cbrandily                |
+| I860e9e7c7ef458722135a21c6c5745f5519c56c4 | no instance info cache update if instance deleted                           | bug/1618822                                       | jichenjc                 |
+| Ia99d2e4e502d6fa13572727a9dabc617f472cb0f | hardware: Rework '_get_cpu_topology_constraints'                            | bp/extra-specs-image-meta-conflicts               | sfinucan                 |
+| I7ac4744927395e300205e0f2283b7f2828f431d6 | Add post hook script to run tempest with old n-api                          | zero-downtime-upgrade                             | Sujitha                  |
+| Id2a5282b1b5a269d0012b140485e8e2f4ef8c7d9 | Fix invalid Image&block device mapping combination                          | bug/1441990                                       | sxmatch                  |
+| Ie52044ed9ad8520e3878de60365cdea22596aa78 | libvirt: remove extraneous retry assignment in cleanup method               |                                                   | mriedem                  |
+| If734e22af223836b424561e8e9ca65e6c39fe5c2 | VMware: Do not check if folder already exists in vCenter                    | bug/1627693                                       | rgerganov                |
+| I28e3fb3ef20508d83f30ae6af8bf94967486f6c8 | Don't create instance_extra entry for deleted instance                      | bug/1651319                                       | WeiguoFan                |
+| I85cfd8bc64588992b9362cc911ee297c836e8e5b | relnotes: Fix config options deprecation notes                              | feat/cleaned-up-release-notes                     | sfinucan                 |
+| I8fc60f0aac95b234a4cbf0ad9a6903f83036e70c | VMware: ensure volume is accessible by instance                             | vol-check2                                        | garyk                    |
+| Icc72b9c4ddd11964f0e4a774588684eb016fae0f | VMware: ensure that provider networks work for type 'portgroup'             | providers                                         | garyk                    |
+| I484ae1e5a4d1a010f76062b7ec1e2ac5b2ca9669 | nova api should not cache az info in process memory                         | bug1633323                                        | cissy                    |
+| I045e36c7b136330db71c2140b1593659fb4a38be | Move VMwareAPI virt driver codes to Nova repo                               | move_vmwareapi                                    | YuikoTakada              |
+| I0094bb6a5a3933e8211c7ef8ec4304453853f365 | [BugFix] Include the video ram when comparing the difference of two flavors | bug/1686380                                       | falseuser                |
+| I30b5d4378724b718c6aa8e52ce2f4412d968fc7d | Cleanup update_instance cell mapping handling                               | cleanup-update-instance                           | mriedem                  |
+| I7af395a867e0657c26fa064d2b0134345cd96814 | live-migration test hook for serial console                                 | serial-console                                    | mzoeller                 |
+| I5cf4fdbc5391b21ff53da6ee4f92e3c888ac3936 | Reduce code complexity - linux_net.py                                       | (detached                                         | xavvior                  |
+| I37ed4dae3fc3d16fe19c8ebcd7b1c2210459b96f | conf: Gather 'live_migration_scheme', 'live_migration_inbound_addr'         | bug/1671288                                       | sfinucan                 |
+| I3fd9fe0317bcd1a59c366e60154b095e8df92327 | nova-manage: Deprecate '--version' parameters                               | bp/move-nova-cmds-to-cliff                        | sfinucan                 |
+| If02ffba6638eefe3a083ac0dc527ed753480dbe4 | nova-manage: Rename 'api_db', 'cellsv2' commands                            | bp/move-nova-cmds-to-cliff                        | sfinucan                 |
+| I155671d6e0528293326cffba32c7fe96a2ae37a2 | conf: Convert 'live_migration_inbound_addr' to HostAddressOpt               | bug/1671288                                       | sfinucan                 |
+| I58b19ef6b537d690df90e542b6af3c64773ecc87 | Handle exception on adding secgroup                                         | bug/1691274                                       | hongbin                  |
+| If04709a3b846575aea31543e102be52b82b2cd97 | Updated from global requirements                                            | openstack/requirements                            | proposal-bot             |
+| I3da059fb62f085ff04532f8ec05857acfb628b06 | Netronome SmartNIC Enablement                                               | netronome-smartnic-enablement                     | jangutter                |
+| Ic3572343bb7a6c3da68c258e5ff8e363a5be3915 | Removed unused 'wrap' property                                              | wrap                                              | iswarya_vakati           |
+| Iefaa9da4e136fd5e823bf7b11c8aa5b4cd6d7de8 | Add tags to instance.create Notification                                    | bp/additional-notification-fields-for-searchlight | Kevin_Zheng              |
+| I3f38954bc5cf7b1690182dc8af45078eea275aa4 | hardware offload support for openvswitch                                    | ovs_acc_2                                         | moshele                  |
+| I924a381ebc7bb40bc98852fe0f19ec0f8d836883 | Whether to use configdrive disk depends on instance.configdrive             | bug/1241806                                       | yuanyue                  |
+| I4aec3700ff5bb9d50213e5827870ffcb13e44b7a | Request zero root disk for boot-from-volume instances                       | fix-bfv-boot-resources                            | danms                    |
+| I02305d3df61b7a37e20d3f5339e4820f83a0693d | List/show all server migration types (2/2)                                  | bp/list-show-all-server-migration-types           | natsumet                 |
+| Ifc5cf482209e4f6f4e3e39b24389bd3563d86444 | claim resources in placement API during schedule()                          | bp/placement-claims                               | jaypipes                 |
+| Ie2a23f88f7f5ecc2a4837cd2c69ed0559220e58b | Update policy description for 'instance_actions'                            | update-instance-actions-policy-docs               | felipe.monteiro          |
+| I4dc6c8bd3bb6c135f8a698af41f5d0e026c39117 | Detach volume after deleting instance with no host                          | bug/1404867                                       | melwitt                  |
+| I735c669ee93eab87fff2e33a8ee69018c80ae8b3 | Implement ScaleIO image backend                                             | bp/scaleio-ephemeral-storage-backend              | ftersin                  |
+| I4184382b49dd2193d6a21bfe02ea973d02d8b09f | libvirt/driver.py: Set cache value for Cinder volume post-migration         | set_cache_for_volume                              | kashyapc                 |
+| I5e6146404132090d054deb76ecd896a1716e0405 | Use _error_out_instance_on_exception in finish_resize                       |                                                   | MatthewBooth             |
+| I0cb8bd55f75da37a12468aac9403c5db8f652035 | List/show all server migration types (1/2)                                  | bp/list-show-all-server-migration-types           | natsumet                 |
+| Id364255090358c4f55c417d69efff6e03ea12685 | Check root disk size when doing resize in API                               | check_size_when_resize                            | jichenjc                 |
+| I304efe1146d7f80e0d2d44888d4efef49fb9ec0b | Raise Exception instead of Exception method call                            |                                                   | xavvior                  |
+| Iaafa71a99d947b4ffb1b365c614a73f38591dca2 | Imported Translations from Zanata                                           | zanata/translations                               | proposal-bot             |
+| Ic42f0cd74665574129d36eeaa093f3f316879592 | [placement] gabbi tests for shared custom resource class                    | 485088                                            | chdent                   |
+| Iacdca854027777647861984405a4c7246f117eee | Pass config object to oslo_reports                                          | bug/1705450                                       | amuresan                 |
+| I11392bb5bcb4427faae3cb8bba2d615271203e81 | objects: remove pagesize from __init__ of InstanceNUMATopology              | clean-numa-objects                                | sfinucan                 |
+| I693bc5a0747eabd3cac801ad52084d401fade964 | Fix invalid getattr/setattr for DriverBlockDevice                           |                                                   | TienDC                   |
+| Iac4c6895c7059fa095906304a7e74c0c89057cd2 | objects: remove related pinning from __init__ of InstanceNUMATopology       | clean-numa-objects                                | sfinucan                 |
+| I98403ca922b83a460a4e7baa12bd5f596a79c940 | console: introduce framework for RFB authentication                         | bp/websocket-proxy-to-host-security               | berrange                 |
+| Ifb9360be73864ab45129c758bd1323a9bab8e48c | console: introduce basic framework for security proxying                    | bp/websocket-proxy-to-host-security               | berrange                 |
+| Id089bcbd67f1cc185ad6672b6447e62dda05c0dd | Replaces uuid.uuid4 with uuidutils.generate_uuid()                          | uuidutils                                         | sudhir_agarwal           |
+| I19df5fdd90cd229e62522fcf4a0c2b2be1ce934e | [WIP] Add truncate for images if prealloc is true                           | bug/1510328                                       | kaisers                  |
+| Id6b02add8af7ff20b612ba0ec47f840ebf832400 | Read Neutron port 'binding_profile' during boot                             | bp/enable-sriov-nic-features                      | rodolfo-alonso-hernandez |
+| Idffd42465e5f0b263766f1d638efb4be5476bf11 | libvirt: Straighten resize condition in Image.cache                         | bp/scaleio-ephemeral-storage-backend              | ftersin                  |
+| I6cc46b3347a426fd27c705abf727801ed47314e4 | Use ConsoleConnection object to generate authorizations                     | bp/convert-consoles-to-objects                    | ptm                      |
+| Id81859186de6fb6b728ad566a532244008fe77d0 | Tweak the cpu_realtime_mask handling slightly                               | bug/1688673                                       | cbf123                   |
+| I92c24709a2f55b601c31a31b9e748f19e7e31984 | VMware: Handle concurrent registrations of the VC extension                 | bug/1704952                                       | rgerganov                |
+| Ie1914b1f5f71c23dd441dafaea9e4261541d338d | Transform instance-evacuate notification                                    | bp/versioned-notification-transformation-pike     | xavvior                  |
+| I22f8a19009408fb1f1587bf399e6aee3467c8bc6 | Generalize DB conf group copying                                            | generalize_config_transfer                        | zzzeek                   |
+| I7d2287ce06d77c0afdef0ea8bdfb70f6c52d3c50 | Transform libvirt.error notification                                        | bp/versioned-notification-transformation-pike     | antal                    |
+| Icac6eaba7a24bb0ccf141aebeadc7408f2725a4c | policies: Fix Sphinx issues                                                 | doc-migration                                     | sfinucan                 |
+| I6d231320e0825d5c89adfa9caf8b72c59d2a1502 | Remove cells v2 transition code from update_instance                        | cleanup-update-instance                           | mriedem                  |
+| I819fd2e6d49e00c2f9175dd5b0f4a1bc356d35e6 | doc: Rework README to reflect new doc URLs                                  | doc-migration                                     | sfinucan                 |
+| I75e8f0adae7cfaaa6020870cdb20dc2144fc70eb | doc: Start using oslo_config.sphinxext                                      | doc-migration                                     | sfinucan                 |
+| I49b532cfa4ec9c2a1f0f1fe52befad643e72dbd2 | Refactor create_delete_server_with_instance_update                          | bp/versioned-notification-transformation-pike     | xavvior                  |
+| Ieb4ae4605fee8fbf58de4c5efb3c00083b4bd62c | Transform instance.resize.error notifications                               | bp/versioned-notification-transformation-pike     | xavvior                  |
+| Id89d7c16ca53938e2bc18e904e8d13477ceb15f7 | [placement] Add api-ref for allocation_candidates                           | cd/placement-api-ref                              | avolkov                  |
+| I27f48415d13b7e4ca4c3cd7609e9521648deb44f | Add json style checking for sample notifications                            | json_checker                                      | antal                    |
+| I416835a2fa0ad807f3c35c3cb14b0f463a5d1145 | Stop using mox stubs in cast_as_call.py                                     | bp/remove-mox-pike                                | natsumet                 |
+| Ia13591906ab2b3b7b7d5bc8f4b965c117f08fc9b | Add console connection object                                               | bp/convert-consoles-to-objects                    | ptm                      |
+| Ifead36ba0dcef86e98e82819c48255d2d9f06d37 | Refactor instance.power-off notification samples                            | refactor-notification-samples                     | gibi                     |
+| I4319b8378cbe74400bb929bb046481e84c3df3a2 | Add sample test for instance audit                                          | bp/versioned-notification-transformation-pike     | gibi                     |
+| I0669a075c94ba2a435116791e3391d8d745bc639 | Factor out duplicated notification sample data (2)                          | refactor-notification-samples                     | gibi                     |
+| I767f082ca244b9f4f940244ab83f69c6e995a442 | Factor out duplicated notification sample data (3)                          | refactor-notification-samples                     | gibi                     |
+| Ie8c9317892f5593d473067d5dfc300a7e98795c5 | explain payload inheritance in notification devref                          |                                                   | gibi                     |
+
+
+
+*** PCI, numa, sriov
+
+#+BEGIN_SRC sqlite :db changes.db :results replace
+select * from change
+where import_id = (select max(id) from import)
+and (subject like '%nfv%' or topic like '%pci%' or subject like '%numa%' or topic like '%numa%' or subject like '%sriov%' or topic like '%sriov%')
+and code_review = 0;
+#+END_SRC
+
+#+RESULTS:
+| Ic6f97129e928b446857af65d7b17bfdc91eba761 | m.kucia                  | -1 | 0 | openstack/nova | master | PCI                                       | WIP Introduced PciDeviceAddressPattern class                          | NEW | 1 | 101 |   1 | 2017-06-23 16:59:33 | 2017-06-23 19:00:04 | 184 |
+| I2bd815e41e383b41cb57ed1df43e17e0c18760fd | m.kucia                  | -1 | 0 | openstack/nova | master | PCI                                       | WIP Introduced class PciDeviceAddress                                 | NEW | 1 | 297 |   0 | 2017-06-23 16:59:33 | 2017-06-23 18:43:50 | 184 |
+| Ie8d3d173524e15c6457569a2750d73d71f3891c1 | sfinucan                 | -1 | 0 | openstack/nova | master | clean-numa-objects                        | objects: Remove custom comparison methods                             | NEW | 1 |   9 |  37 | 2017-06-08 14:34:58 | 2017-06-09 18:56:09 | 184 |
+| I6bf6b47fb714af7721cd8cc848f49948df90f1e9 | snikitin                 | -1 | 0 | openstack/nova | master | bp/share-pci-between-numa-nodes           | Added PCI NUMA policies                                               | NEW | 1 | 347 |  29 | 2016-10-25 11:51:05 | 2017-06-07 20:35:11 | 184 |
+| If03e324d2eb3919a5210ce5e6fffd6d08a7baed7 | jaypipes                 | -1 | 0 | openstack/nova | master | bp/nested-resource-providers              | placement: SRIOV PF devices as child providers                        | NEW | 0 | 664 | 110 | 2016-12-25 18:52:23 | 2017-04-18 21:21:09 | 184 |
+| Id9627839c38798704dbffac3b52dfd4c4046b598 | sfinucan                 | -1 | 0 | openstack/nova | master | feat/numa-refactor                        | Rename '_numa_get_constraints_XXX' functions                          | NEW | 1 |  21 |  21 | 2016-10-11 15:51:59 | 2017-04-04 15:03:04 | 184 |
+| I4516387b5b27b9a447c98dd5748858b6de634a99 | sfinucan                 | -1 | 0 | openstack/nova | master | feat/numa-refactor                        | Standardize '_get_XXX_constraints' functions                          | NEW | 1 |  40 |  41 | 2016-10-11 15:51:59 | 2017-04-04 13:09:48 | 184 |
+| Ibb2d8caf9898dd776c2b1d3f15a0d81cbf222363 | ndipanov                 | -1 | 0 | openstack/nova | master | bug/1417667                               | libvirt: live-migrate updates NUMA and cpus in the XML                | NEW | 0 | 281 |  35 | 2016-03-01 17:46:49 | 2017-03-15 20:52:10 | 184 |
+| I425dbb3f87103db649937600f8ea0a96ac42152c | avolkov                  |  1 | 0 | openstack/nova | master | bp/user-controlled-sriov-ports-allocation | PoC: Select PCI devices with distinct tag values                      | NEW | 1 | 334 |   0 | 2017-03-21 11:06:17 | 2017-07-21 04:06:31 | 184 |
+| I11392bb5bcb4427faae3cb8bba2d615271203e81 | sfinucan                 |  1 | 0 | openstack/nova | master | clean-numa-objects                        | objects: remove pagesize from __init__ of InstanceNUMATopology        | NEW | 1 | 108 |  65 | 2017-07-20 11:24:06 | 2017-07-20 23:17:19 | 184 |
+| Iac4c6895c7059fa095906304a7e74c0c89057cd2 | sfinucan                 |  1 | 0 | openstack/nova | master | clean-numa-objects                        | objects: remove related pinning from __init__ of InstanceNUMATopology | NEW | 1 |  56 |  41 | 2017-07-20 11:24:06 | 2017-07-20 22:24:01 | 184 |
+| I31937b288a9549341426d2e619aae39b3e8550c7 | sfinucan                 | -1 | 0 | openstack/nova | master | clean-numa-objects                        | objects: remove cpuset_reserved from __init__ of InstanceNUMATopology | NEW | 1 |   4 |   8 | 2017-05-18 16:12:03 | 2017-07-20 19:10:39 | 184 |
+| Iaea17b7a02d53463d2b815bdc5f4e83e422188eb | sahid                    | -1 | 0 | openstack/nova | master | bp/sriov-trusted-vfs                      | network: update pci request spec to handle trusted tags               | NEW | 1 |  76 |  17 | 2017-04-21 12:38:52 | 2017-07-20 18:56:45 | 184 |
+| Id6b02add8af7ff20b612ba0ec47f840ebf832400 | rodolfo-alonso-hernandez |  1 | 0 | openstack/nova | master | bp/enable-sriov-nic-features              | Read Neutron port 'binding_profile' during boot                       | NEW | 1 | 449 | 244 | 2017-03-23 18:34:01 | 2017-07-20 12:53:17 | 184 |
+| I928e1c38db9b1829c30ffdd44b04033b45d96e81 | m.kucia                  | -1 | 0 | openstack/nova | master | PCI                                       | Add JSON schema validation to PCI whitelist                           | NEW | 1 |  38 |   0 | 2017-06-21 11:56:39 | 2017-07-15 21:46:13 | 184 |
+
