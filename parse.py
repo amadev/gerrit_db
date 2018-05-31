@@ -6,16 +6,20 @@ import sqlite3
 import glob
 
 
+data_dir = '/home/amadev/.gerrit_db/'
+
+
 def parse(fn):
     changes = json.load(open(fn))
     for change in changes:
         id = change['change_id']
-        detail = json.load(open('raw/%s.json' % id))
+        detail = json.load(open(data_dir + 'raw/%s.json' % id))
         row = OrderedDict()
         row['change_id'] = id
         row['author'] = detail['owner']['username']
         row['verified'] = int(detail['labels']['Verified'].get('value', 0))
-        row['code_review'] = int(detail['labels']['Code-Review'].get('value', 0))
+        row['code_review'] = int(
+            detail['labels']['Code-Review'].get('value', 0))
         if row['code_review'] == 0:
             for item in detail['labels']['Code-Review'].get('all', []):
                 if item['value']:
@@ -33,10 +37,11 @@ def parse(fn):
         c.execute(stmt, row.values())
     conn.commit()
 
-fns = glob.glob('raw/all-*.json')
-conn = sqlite3.connect('changes.db')
+
+fns = glob.glob(data_dir + 'raw/all-*.json')
+conn = sqlite3.connect(data_dir + 'changes.db')
 c = conn.cursor()
-dt = datetime.datetime.fromtimestamp(os.path.getmtime('raw'))
+dt = datetime.datetime.fromtimestamp(os.path.getmtime(data_dir + 'raw'))
 c.execute('insert into import (created) values (?)', [dt])
 conn.commit()
 import_id = c.lastrowid

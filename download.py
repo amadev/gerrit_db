@@ -8,20 +8,25 @@ import logging
 
 host = 'https://review.openstack.org/'
 change_url = 'changes/%s/detail/'
-life_time_weeks = 6
+# Gerrit has limit of changes we can get via API (500). To overcome that limit
+# changes are gotten by period. The following changes determines on what
+# number of requests the whole process will be splitted.
+num_of_periods = 7
+period_length = 7  # in days
 dt_format = '%Y-%m-%d %H:%S:%M'
+data_dir = '/home/amadev/.gerrit_db/'
 
 
-def calc_periods():
+def calc_periods(num_of_periods, period_length):
     curr = datetime.datetime.now()
     curr = curr.replace(hour=23, minute=59, second=59, microsecond=0)
     periods = []
-    for i in range(life_time_weeks + 1):
+    for i in range(num_of_periods):
         end = curr
-        start = curr - datetime.timedelta(days=6)
+        start = curr - datetime.timedelta(days=(period_length - 1))
         start = start.replace(hour=0, minute=0, second=0)
         periods.append([start, end])
-        curr -= datetime.timedelta(days=7)
+        curr -= datetime.timedelta(days=period_length)
     return periods
 
 
@@ -33,8 +38,7 @@ def load_changes(start, end):
     conditions = [
         'status:open',
         'project:openstack/nova']
-    if start:
-        conditions.append('after:"%s"' % start.strftime(dt_format))
+    conditions.append('after:"%s"' % start.strftime(dt_format))
     conditions.append('before:"%s"' % end.strftime(dt_format))
     logging.debug('Getting changes with conditions %s', conditions)
     r = sess.get(
@@ -44,8 +48,9 @@ def load_changes(start, end):
     if not data:
         return
     fn = 'raw/all-%s-%s.json' % (
-        None if not start else start.strftime('%Y-%m-%d'),
+        start.strftime('%Y-%m-%d'),
         end.strftime('%Y-%m-%d'))
+    fn = os.path.join(data_dir, fn)
     f = open(fn, 'w')
     f.write(data.encode('utf8'))
     f.close()
@@ -55,17 +60,20 @@ def load_changes(start, end):
     for change in jdata:
         r = sess.get(host + change_url % change['id'])
         data = remove_first_line(r.text)
-        f = open('raw/%s.json' % change['change_id'], 'w')
+        fn = 'raw/%s.json' % change['change_id']
+        fn = os.path.join(data_dir, fn)
+        f = open(fn, 'w')
         f.write(data.encode('utf8'))
         f.close()
 
 
 if __name__ == '__main__':
-    if os.path.exists('raw'):
-        shutil.rmtree('raw')
-    os.mkdir('raw')
+    raw_dir = os.path.join(data_dir, 'raw')
+    if os.path.exists(raw_dir):
+        shutil.rmtree(raw_dir)
+    os.makedirs(raw_dir)
     sess = requests.Session()
-    periods = calc_periods()
-    periods[-1][0] = None
+    periods = calc_periods(num_of_periods, period_length)
+    periods[-1][0] = datetime.date(1970, 1, 1)
     for period in periods:
         load_changes(*period)
